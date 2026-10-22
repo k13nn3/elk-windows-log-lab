@@ -1,0 +1,45 @@
+# ---------------------------------------------------------------
+# Secrets & config thật — KHÔNG commit. Chỉ commit bản *.example
+# ---------------------------------------------------------------
+
+# Biến môi trường (mật khẩu, encryption keys)
+.env
+.env.*
+!.env.example
+
+# Chứng chỉ / khoá TLS (CA, cert, private key, keystore)
+*.crt
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.csr
+*.zip
+certs/
+!*.example
+!**/*.example
+
+# Keystore & file override cục bộ
+*.keystore
+docker-compose.override.yml
+!docker-compose.override.yml.example
+
+# Dữ liệu / log nếu lỡ bind mount ra host
+data/
+logs/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+
+# Bộ cài agent (thư mục fleet/): chỉ commit script + hướng dẫn.
+# Token bí mật và file tải về không commit (ca.crt đã bị loại bởi *.crt)
+fleet/enrollment-token.txt
+fleet/elastic-agent-*.zip
+fleet/elastic-agent-*.zip.sha512

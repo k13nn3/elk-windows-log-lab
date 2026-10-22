@@ -1,0 +1,99 @@
+server.name: kibana
+server.host: "0.0.0.0"
+server.publicBaseUrl: ${KIBANA_PUBLIC_URL}
+
+# HTTPS cho giao diện Kibana (cổng 5601)
+server.ssl.enabled: true
+server.ssl.certificate: /usr/share/kibana/config/certs/kibana/kibana.crt
+server.ssl.key: /usr/share/kibana/config/certs/kibana/kibana.key
+
+# Kết nối tới Elasticsearch qua HTTPS, tin cậy CA nội bộ
+elasticsearch.hosts: ["https://es01:9200"]
+elasticsearch.username: kibana_system
+elasticsearch.password: ${KIBANA_PASSWORD}
+elasticsearch.ssl.certificateAuthorities: ["/usr/share/kibana/config/certs/ca/ca.crt"]
+elasticsearch.ssl.verificationMode: full
+
+# Khoá mã hoá (>= 32 ký tự), giữ cố định để không mất saved objects/session
+xpack.security.encryptionKey: ${KIBANA_SECURITY_KEY}
+xpack.encryptedSavedObjects.encryptionKey: ${KIBANA_SAVEDOBJECTS_KEY}
+xpack.reporting.encryptionKey: ${KIBANA_REPORTING_KEY}
+
+monitoring.ui.container.elasticsearch.enabled: true
+
+# ---------------------------------------------------------------
+# Fleet (cấu hình sẵn — Kibana tạo/cập nhật khi khởi động)
+# LAB_IP: IP của host trên mạng VMware mà các VM dùng để kết nối tới
+# ---------------------------------------------------------------
+xpack.fleet.packages:
+  - name: fleet_server
+    version: latest
+  - name: system
+    version: latest
+  - name: windows
+    version: latest
+  - name: elastic_agent
+    version: latest
+
+# License Basic không cho gán output/host riêng theo policy → dùng một output và
+# một Fleet host chung, đều trỏ về LAB_IP (container Fleet Server cũng tới được IP này)
+xpack.fleet.fleetServerHosts:
+  - id: fleet-lab
+    name: Fleet Server (LAB)
+    is_default: true
+    host_urls: ["https://${LAB_IP}:8220"]
+
+xpack.fleet.outputs:
+  - id: es-lab
+    name: Elasticsearch (LAB)
+    type: elasticsearch
+    is_default: true
+    is_default_monitoring: true
+    hosts: ["https://${LAB_IP}:9200"]
+    ca_trusted_fingerprint: ${CA_FINGERPRINT}
+
+xpack.fleet.agentPolicies:
+  - name: Fleet Server Policy
+    id: fleet-server-policy
+    namespace: default
+    is_default_fleet_server: true
+    monitoring_enabled: [logs]
+    package_policies:
+      - name: fleet_server-1
+        id: fleet-server-integration
+        package:
+          name: fleet_server
+  - name: Windows Servers
+    id: windows-servers
+    # Data stream: logs-<dataset>-endpointwindow (namespace không được chứa "-")
+    namespace: endpointwindow
+    # Chỉ thu log: tắt metrics tự giám sát của agent và mọi input metric
+    monitoring_enabled: [logs]
+    package_policies:
+      - name: system-windows-servers
+        id: system-windows-servers
+        namespace: endpointwindow
+        package:
+          name: system
+        inputs:
+          # Giữ: event log Application / System / Security
+          - type: winlog
+            enabled: true
+          - type: system/metrics
+            enabled: false
+          # Log Linux (auth/syslog/journald) — không áp dụng cho Windows
+          - type: logfile
+            enabled: false
+          - type: journald
+            enabled: false
+      - name: windows-windows-servers
+        id: windows-windows-servers
+        namespace: endpointwindow
+        package:
+          name: windows
+        inputs:
+          # Giữ: PowerShell, Sysmon, Forwarded events
+          - type: winlog
+            enabled: true
+          - type: windows/metrics
+            enabled: false

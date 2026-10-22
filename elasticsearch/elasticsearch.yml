@@ -1,0 +1,23 @@
+cluster.name: ${CLUSTER_NAME}
+node.name: es01
+network.host: 0.0.0.0
+discovery.type: single-node
+
+xpack.license.self_generated.type: basic
+xpack.security.enabled: true
+
+# HTTPS cho REST API (cổng 9200). Gửi kèm CA trong chuỗi để Elastic Agent
+# xác thực được bằng ca_trusted_fingerprint
+xpack.security.http.ssl:
+  enabled: true
+  key: certs/es01/es01.key
+  certificate: certs/es01/es01-chain.crt
+  certificate_authorities: certs/ca/ca.crt
+
+# TLS giữa các node (cổng 9300) — bắt buộc khi bật security
+xpack.security.transport.ssl:
+  enabled: true
+  verification_mode: certificate
+  key: certs/es01/es01.key
+  certificate: certs/es01/es01.crt
+  certificate_authorities: certs/ca/ca.crt

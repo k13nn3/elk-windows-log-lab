@@ -1,0 +1,126 @@
+name: elk
+
+services:
+  # Bước 1: tạo CA + chứng chỉ TLS (bỏ qua nếu đã có trong volume certs)
+  certs:
+    build:
+      context: ./setup
+      args:
+        STACK_VERSION: ${STACK_VERSION}
+    image: elk-setup:${STACK_VERSION}
+    command: ["certs"]
+    user: "0"
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+      KIBANA_PASSWORD: ${KIBANA_PASSWORD}
+      CERT_DAYS: ${CERT_DAYS}
+      CERT_EXTRA_DNS: ${CERT_EXTRA_DNS}
+      CERT_EXTRA_IP: ${LAB_IP}
+
+  # Bước 3: mật khẩu kibana_system, service token Fleet, retention/replica cho logs-*
+  setup:
+    image: elk-setup:${STACK_VERSION}
+    command: ["passwords"]
+    depends_on:
+      es01:
+        condition: service_healthy
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+      KIBANA_PASSWORD: ${KIBANA_PASSWORD}
+      LOG_RETENTION: ${LOG_RETENTION}
+
+  # Bước 2
+  es01:
+    build:
+      context: ./elasticsearch
+      args:
+        STACK_VERSION: ${STACK_VERSION}
+        ES_PLUGINS: ${ES_PLUGINS}
+    image: elk-elasticsearch:${STACK_VERSION}
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs:ro
+      - esdata:/usr/share/elasticsearch/data
+    ports:
+      - "${BIND_ADDR}:${ES_PORT}:9200"
+      # Cho VM trong mạng VMware gửi dữ liệu vào ES
+      - "${LAB_IP}:${ES_PORT}:9200"
+    environment:
+      CLUSTER_NAME: ${CLUSTER_NAME}
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+      ES_JAVA_OPTS: -Xms${ES_HEAP} -Xmx${ES_HEAP}
+    mem_limit: ${ES_MEM_LIMIT}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    restart: unless-stopped
+
+  # Bước 4
+  kibana:
+    build:
+      context: ./kibana
+      args:
+        STACK_VERSION: ${STACK_VERSION}
+    image: elk-kibana:${STACK_VERSION}
+    depends_on:
+      es01:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+    volumes:
+      - certs:/usr/share/kibana/config/certs:ro
+      - kibanadata:/usr/share/kibana/data
+    ports:
+      - "${BIND_ADDR}:${KIBANA_PORT}:5601"
+    environment:
+      KIBANA_PUBLIC_URL: ${KIBANA_PUBLIC_URL}
+      KIBANA_PASSWORD: ${KIBANA_PASSWORD}
+      KIBANA_SECURITY_KEY: ${KIBANA_SECURITY_KEY}
+      KIBANA_SAVEDOBJECTS_KEY: ${KIBANA_SAVEDOBJECTS_KEY}
+      KIBANA_REPORTING_KEY: ${KIBANA_REPORTING_KEY}
+      LAB_IP: ${LAB_IP}
+      NODE_OPTIONS: --max-old-space-size=${KIBANA_NODE_HEAP_MB}
+    mem_limit: ${KIBANA_MEM_LIMIT}
+    restart: unless-stopped
+
+  # Bước 5: Fleet Server (Elastic Agent) — các agent trong VM enroll vào đây
+  fleet-server:
+    image: docker.elastic.co/elastic-agent/elastic-agent:${STACK_VERSION}
+    hostname: fleet-server
+    depends_on:
+      kibana:
+        condition: service_healthy
+    volumes:
+      - certs:/certs:ro
+      - fleetdata:/usr/share/elastic-agent/state
+    ports:
+      - "${BIND_ADDR}:${FLEET_PORT}:8220"
+      - "${LAB_IP}:${FLEET_PORT}:8220"
+    environment:
+      FLEET_SERVER_ENABLE: "1"
+      FLEET_SERVER_POLICY_ID: fleet-server-policy
+      FLEET_SERVER_ELASTICSEARCH_HOST: https://es01:9200
+      FLEET_SERVER_ELASTICSEARCH_CA: /certs/ca/ca.crt
+      FLEET_SERVER_SERVICE_TOKEN_PATH: /certs/fleet-server/service-token
+      FLEET_SERVER_CERT: /certs/fleet-server/fleet-server-chain.crt
+      FLEET_SERVER_CERT_KEY: /certs/fleet-server/fleet-server.key
+      FLEET_URL: https://fleet-server:8220
+      FLEET_CA: /certs/ca/ca.crt
+    mem_limit: ${FLEET_MEM_LIMIT}
+    restart: unless-stopped
+
+volumes:
+  certs:
+  esdata:
+  kibanadata:
+  fleetdata:
